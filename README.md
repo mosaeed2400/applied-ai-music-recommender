@@ -120,6 +120,11 @@ normally.
 
 ## Reliability and Evaluation
 
+**Automated test harness:** Run `python3 -m src.evaluate` for a zero-cost,
+no-API-calls test harness that verifies 7 documented profiles (all from
+model_card.md's Appendix) against their known expected outcomes — 7/7 passing,
+exit code 0 for CI compatibility.
+
 **Method:** Automated tests (pytest), logging with structured JSON output, and human evaluation of AI-generated critiques against known system biases.
 
 **Summary:** Across 3 real profiles (15 total recommendations critiqued), the agent assigned 4 High, 6 Medium, and 5 Low confidence labels. Manual review confirmed every "Medium" or "Low" critique correctly identified a real mismatch (wrong genre, wrong mood, or a score inflated by a single factor) rather than an arbitrary label — for example, the agent flagged Gym Hero as "Medium" in two different profiles for the same underlying reason (genre match masking a mood mismatch), consistent with the genre-inflation bias documented in `model_card.md`. Error handling was tested under 2 real failure conditions (invalid API key, insufficient account credits) and both correctly triggered graceful fallback with zero crashes across all runs.
