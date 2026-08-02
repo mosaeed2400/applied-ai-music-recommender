@@ -8,7 +8,11 @@ flowchart TD
     LLM --> Critique[Confidence label + plain-language critique per song]
     Critique --> Output[CLI output: table plus agent critique]
     Critique --> Logger[log_agent_run: appends to logs/agent_log.jsonl]
+    Logger --> Review[Human review: does the critique match the recommender's actual bias?]
+    Output --> Tests[pytest: verifies scoring and ranking logic separately]
 
     style Agent fill:#7F77DD,color:#fff
     style LLM fill:#7F77DD,color:#fff
     style Critique fill:#7F77DD,color:#fff
+    style Review fill:#1D9E75,color:#fff
+    style Tests fill:#1D9E75,color:#fff
