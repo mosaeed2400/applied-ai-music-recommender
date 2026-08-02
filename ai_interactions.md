@@ -176,3 +176,41 @@ system Python and correctly stopped when it hit a PEP 668 "externally managed
 environment" error, rather than forcing an unsafe install — it verified the
 feature worked in an isolated temp directory first, which I then confirmed for
 real using a proper venv.
+
+---
+
+## Agentic Workflow Enhancement (Stretch Feature +2)
+
+**What was built:** A genuine two-step reasoning chain was added to `src/agent.py`.
+Step 1 (`critique_recommendations`) evaluates each recommendation and assigns a
+confidence label. Step 2 (`decide_on_recommendations`) is a *separate, chained*
+Claude API call that takes the Step 1 critiques as input and makes an explicit
+decision per song: `keep`, `flag_for_review`, or `suggest_alternative` (naming
+a better-fitting song already present in the recommendation list, if one exists).
+
+**Why this is a genuine multi-step chain, not a single call restructured:** Step 2
+never re-evaluates the raw song data — it reasons purely from Step 1's output
+(the critique text and confidence label), meaning each step depends on the
+previous one's result. A validation guardrail also downgrades any suggested
+alternative that isn't actually present in the candidate list to
+`flag_for_review`, preventing the model from inventing an unsupported suggestion.
+
+**Full intermediate reasoning trace:** saved to [`logs/reasoning_trace.jsonl`](logs/reasoning_trace.jsonl),
+containing both the raw `step_1_critiques` and `step_2_decisions` for every
+critiqued profile, so the complete two-step chain is committed and inspectable.
+
+**Sample chain output (High-Energy Pop profile, pop/happy/0.9):**
+
+| Song | Step 1: Confidence | Step 2: Decision |
+|---|---|---|
+| Sunrise City | High | keep |
+| Gym Hero | Medium | flag_for_review (mood mismatch masked by genre points) |
+| Rooftop Lights | Medium | keep (indie pop close enough) |
+| Neon Uprising | Low | suggest_alternative → Sunrise City |
+| Storm Runner | Low | suggest_alternative → Sunrise City |
+
+This demonstrates the agent isn't just labeling confidence — it's making an
+actionable decision informed by its own prior reasoning step, and that decision
+is logically consistent with the confidence label that produced it (every
+"suggest_alternative" traces back to a "Low" confidence critique; every "keep"
+traces back to "High" or a defensible "Medium").

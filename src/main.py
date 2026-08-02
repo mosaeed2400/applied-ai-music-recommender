@@ -15,7 +15,12 @@ from .recommender import (
     recommend_songs_diverse,
     STRATEGIES,
 )
-from .agent import critique_recommendations, log_agent_run
+from .agent import (
+    critique_recommendations,
+    decide_on_recommendations,
+    log_agent_run,
+    log_reasoning_trace,
+)
 
 try:
     from tabulate import tabulate
@@ -100,17 +105,30 @@ def main() -> None:
         # Only critique the first AGENT_PROFILE_LIMIT profiles by default, so a
         # full run doesn't make 7 paid API calls (see the constant above).
         if AGENT_MODE and index < AGENT_PROFILE_LIMIT:
+            # Step 1: critique each recommendation and assign a confidence label.
             critiques = critique_recommendations(user_prefs, recommendations)
-            print("--- Agent critique ---")
-            for critique in critiques:
-                print(f"[{critique['confidence']}] {critique['title']}")
-                print(f"   {critique['critique_text']}")
-            print()
-            agent_runs.append((user_prefs, critiques))
+            # Step 2: a separate, chained call that decides an action per song,
+            # reasoning from the step-1 critiques.
+            decisions = decide_on_recommendations(user_prefs, recommendations, critiques)
 
-    # Persist one JSON line per critiqued profile after the run.
-    for user_prefs, critiques in agent_runs:
+            print("--- Agent critique + decision ---")
+            for critique, decision in zip(critiques, decisions):
+                print(f"[{critique['confidence']}] {critique['title']}")
+                print(f"   critique: {critique['critique_text']}")
+                action = decision["action"]
+                if action == "suggest_alternative" and decision["suggested_alternative"]:
+                    action = f"suggest_alternative -> {decision['suggested_alternative']}"
+                print(f"   decision: {action}")
+                print(f"   reasoning: {decision['reasoning']}")
+            print()
+
+            agent_runs.append((user_prefs, critiques, decisions))
+
+    # Persist per critiqued profile after the run: the confidence log, plus the
+    # full multi-step reasoning trace (critique + decision, raw).
+    for user_prefs, critiques, decisions in agent_runs:
         log_agent_run(user_prefs, critiques)
+        log_reasoning_trace(user_prefs, critiques, decisions)
 
 
 if __name__ == "__main__":

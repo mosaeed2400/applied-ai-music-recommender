@@ -34,6 +34,7 @@ load_dotenv()
 MODEL = "claude-sonnet-4-5"
 MAX_TOKENS = 1000
 VALID_CONFIDENCE = {"High", "Medium", "Low"}
+VALID_ACTIONS = {"keep", "flag_for_review", "suggest_alternative"}
 
 
 def _build_prompt(user_prefs: Dict, recommendations: List[Tuple[Dict, float, str]]) -> str:
@@ -186,6 +187,177 @@ def critique_recommendations(
     return results
 
 
+def _build_decision_prompt(
+    user_prefs: Dict,
+    recommendations: List[Tuple[Dict, float, str]],
+    critiques: List[Dict],
+) -> str:
+    """
+    Render the second-step prompt: the listener's preferences, each recommendation,
+    and the critique already produced for it, then ask for a per-song action.
+    """
+    prefs_block = "\n".join(f"- {key}: {value}" for key, value in user_prefs.items())
+
+    titles = [song["title"] for song, _, _ in recommendations]
+    titles_block = ", ".join(f'"{t}"' for t in titles)
+
+    # Align each recommendation with its critique by order (both come from the same
+    # top-k list, in the same order).
+    blocks = []
+    for rank, ((song, score, explanation), critique) in enumerate(
+        zip(recommendations, critiques), start=1
+    ):
+        blocks.append(
+            f"{rank}. \"{song['title']}\" by {song.get('artist', 'unknown')}\n"
+            f"   - score: {score:.2f}\n"
+            f"   - genre: {song.get('genre')}, mood: {song.get('mood')}, "
+            f"energy: {song.get('energy')}\n"
+            f"   - recommender reasons: {explanation}\n"
+            f"   - critique confidence: {critique.get('confidence')}\n"
+            f"   - critique: {critique.get('critique_text')}"
+        )
+    rec_block = "\n\n".join(blocks)
+
+    return (
+        "You are the second step in a two-step review of a music recommender. In the "
+        "first step, each recommendation was critiqued and given a confidence label "
+        "(High/Medium/Low). Your job now is to DECIDE what to do with each "
+        "recommendation, based on that critique.\n\n"
+        "The listener's stated preferences are:\n"
+        f"{prefs_block}\n\n"
+        "The recommendations, each with its first-step critique:\n\n"
+        f"{rec_block}\n\n"
+        "For EACH recommendation, choose exactly one action:\n"
+        '  - "keep": the recommendation is solid; leave it in the list.\n'
+        '  - "flag_for_review": the recommendation is questionable and a human '
+        "should double-check it.\n"
+        '  - "suggest_alternative": another song in the list above would likely be a '
+        "better fit; name it.\n\n"
+        "When you choose \"suggest_alternative\", the suggested song MUST be one of "
+        f"these exact titles: {titles_block}. Otherwise set the alternative to null.\n\n"
+        "Respond with ONLY a JSON object of the form:\n"
+        '{\n'
+        '  "decisions": [\n'
+        '    {"title": "<song title>", "action": "keep|flag_for_review|suggest_alternative", '
+        '"suggested_alternative": "<title or null>", "reasoning": "<one to two sentences>"}\n'
+        '  ]\n'
+        '}\n'
+        "Include one entry per recommendation, in the same order. Do not include any "
+        "text outside the JSON object."
+    )
+
+
+def _decision_fallback(
+    recommendations: List[Tuple[Dict, float, str]], reason: str
+) -> List[Dict]:
+    """
+    Per-song fallback used when the decision step is unavailable, so the caller
+    always receives one dict per recommendation with the expected keys.
+    """
+    return [
+        {
+            "title": song.get("title", "unknown"),
+            "action": "unavailable",
+            "suggested_alternative": None,
+            "reasoning": f"Agent unavailable: {reason}",
+        }
+        for song, _, _ in recommendations
+    ]
+
+
+def decide_on_recommendations(
+    user_prefs: Dict,
+    recommendations: List[Tuple[Dict, float, str]],
+    critiques: List[Dict],
+) -> List[Dict]:
+    """
+    Second reasoning step: make a *separate* Claude call that decides an action for
+    each recommendation, using the first-step critiques as input.
+
+    This is deliberately a second API call chained after critique_recommendations,
+    not merged into one prompt — critique first, then decide based on the critique.
+
+    Args:
+        user_prefs: the listener's preference dict.
+        recommendations: the (song_dict, score, explanation) tuples from
+            recommend_songs().
+        critiques: the output of critique_recommendations() for these same
+            recommendations, in the same order.
+
+    Returns:
+        A list of dicts, one per song, each with:
+          - title: the song title
+          - action: "keep" | "flag_for_review" | "suggest_alternative"
+            (or "unavailable" on failure)
+          - suggested_alternative: a title from the list (only for
+            "suggest_alternative"), otherwise None
+          - reasoning: Claude's justification for the action
+
+    On any API/parse failure this returns a fallback response instead of raising.
+    """
+    if not recommendations:
+        return []
+
+    prompt = _build_decision_prompt(user_prefs, recommendations, critiques)
+
+    try:
+        client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the environment
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=MAX_TOKENS,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = next((block.text for block in response.content if block.type == "text"), "")
+        data = _extract_json(text)
+        decisions = data["decisions"]
+    except anthropic.APIError as exc:
+        return _decision_fallback(recommendations, f"{type(exc).__name__}: {exc}")
+    except (KeyError, ValueError, TypeError) as exc:
+        return _decision_fallback(recommendations, f"could not parse response ({exc})")
+    except Exception as exc:  # noqa: BLE001 - never let the agent crash the caller
+        return _decision_fallback(recommendations, f"unexpected error ({exc})")
+
+    valid_titles = {song["title"] for song, _, _ in recommendations}
+
+    results: List[Dict] = []
+    for (song, _, _), raw in zip(recommendations, decisions):
+        action = str(raw.get("action", "")).strip().lower()
+        if action not in VALID_ACTIONS:
+            action = "flag_for_review"  # unrecognized action → safest is human review
+
+        alternative = raw.get("suggested_alternative")
+        # Only honor an alternative for the matching action, and only if it names a
+        # real song from the list (and isn't just the song itself).
+        if action == "suggest_alternative":
+            if alternative not in valid_titles or alternative == song.get("title"):
+                action = "flag_for_review"
+                alternative = None
+        else:
+            alternative = None
+
+        results.append(
+            {
+                "title": song.get("title", raw.get("title", "unknown")),
+                "action": action,
+                "suggested_alternative": alternative,
+                "reasoning": str(raw.get("reasoning", "")).strip(),
+            }
+        )
+
+    # Pad if the model returned fewer entries than songs.
+    for song, _, _ in recommendations[len(results):]:
+        results.append(
+            {
+                "title": song.get("title", "unknown"),
+                "action": "unavailable",
+                "suggested_alternative": None,
+                "reasoning": "Agent unavailable: no decision returned for this song.",
+            }
+        )
+
+    return results
+
+
 def log_agent_run(
     user_prefs: Dict, critiques: List[Dict], log_path: str = "logs/agent_log.jsonl"
 ) -> None:
@@ -201,6 +373,33 @@ def log_agent_run(
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "user_profile": user_prefs,
         "critiques": critiques,
+    }
+
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def log_reasoning_trace(
+    user_prefs: Dict,
+    critiques: List[Dict],
+    decisions: List[Dict],
+    log_path: str = "logs/reasoning_trace.jsonl",
+) -> None:
+    """
+    Append one JSON line capturing the full multi-step reasoning trace: both the
+    step-1 critique output and the step-2 decision output, raw, alongside the
+    profile and timestamp. This is the committed record of the critique -> decide
+    chain referenced from ai_interactions.md. Creates logs/ if needed.
+    """
+    directory = os.path.dirname(log_path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+
+    record = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "user_profile": user_prefs,
+        "step_1_critiques": critiques,
+        "step_2_decisions": decisions,
     }
 
     with open(log_path, "a", encoding="utf-8") as f:
