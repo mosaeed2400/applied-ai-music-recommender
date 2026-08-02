@@ -182,6 +182,24 @@ exit code 0 for CI compatibility.
 
 A detailed reflection on this project's responsible-AI considerations — limitations, potential misuse, testing surprises, and specific examples of helpful and flawed AI collaboration — is documented in [`model_card.md`](model_card.md), as required.
 
+## Portfolio Reflection
+
+This project reflects how I approach building with AI: start with something that
+already works, find its real weaknesses through actual testing rather than
+assumption, and then layer AI capability on top in a way that's honest about
+its own limits. The agentic critique feature I built doesn't just generate
+plausible-sounding text — it independently rediscovered a genre-inflation bias
+I'd already found by hand, then I extended it into a genuine multi-step
+reasoning chain with a validation guardrail, and backed the whole thing with a
+zero-cost automated test harness plus documented reliability data. I treat AI
+tools as collaborators whose claims I verify, not oracles whose output I accept
+— the "flawed suggestion" example in my model card exists because I checked the
+math instead of trusting a plausible-sounding generalization. That combination
+— building real, testable AI features and being rigorous about what they
+actually do versus what they seem to do — is the engineer I'm trying to be.
+
+**GitHub repository:** https://github.com/mosaeed2400/applied-ai-music-recommender
+
 ---
 ---
 
