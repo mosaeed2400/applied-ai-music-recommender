@@ -280,3 +280,37 @@ cliff, and actually scoring the tempo/valence/danceability data that's currently
 loaded but ignored. I'd also want to add a "low confidence" signal for cases like
 the Ghost Profile, where the system currently returns five confident-looking
 results even though none of them are a real match.
+
+---
+
+# Applied AI System: Reflection and Ethics
+
+*This section reflects specifically on the new agentic critique feature added to the original recommender for the Applied AI System project.*
+
+## What are the limitations or biases in your system?
+
+The agent inherits every bias already documented above in the original recommender's Model Card (genre-inflation, thin genre coverage, no input validation, etc.) — since it critiques the recommender's actual output, any structural flaw in the underlying scores shows up in what it's asked to evaluate. Beyond that, the agent has its own limitations:
+
+- **It's a critic, not a fixer.** The agent can flag that Gym Hero's score is "inflated by the genre match," but it never adjusts the actual recommendation or reorders results — a user still sees the same ranked list, just with an added opinion layered on top. This is a deliberate design choice (see Design Decisions in README), but it means the agent can identify a problem it has no ability to resolve.
+- **Confidence labels are self-reported, not calibrated.** "High," "Medium," and "Low" are the model's own subjective assessment, not a statistically validated confidence score. A "High" confidence critique is not the same as a guarantee of correctness — it's the model's best judgment based on the data it was given.
+- **Scoped testing, not exhaustive testing.** Only 3 of the original project's 7 test profiles were run through the agent (to limit API cost during development — see `AGENT_PROFILE_LIMIT`). The 4 adversarial edge-case profiles (conflicting preferences, out-of-range values, no-match scenarios) that were stress-tested against the *original* recommender were never run through the *agent* specifically, so we don't yet know how the agent's critique behaves on those harder edge cases.
+
+## Could your AI be misused, and how would you prevent that?
+
+The most realistic misuse risk isn't malicious — it's **over-trust**. Because the agent produces confident-sounding, well-written prose with a "confidence" label attached, a user could reasonably mistake a "High" confidence critique for a verified fact rather than one AI's best-effort read of the data. If this system were extended toward real listeners, presenting the critique without also showing the underlying score breakdown (which it currently always does, side-by-side) would risk letting the LLM's fluent language substitute for actual evidence.
+
+A second, smaller risk: since the agent's prompt includes the full recommendation data (song attributes, scores, reasons), a modified version of this system that accepted user-supplied songs or profiles without validation could be used to probe what the model will say about arbitrary or adversarial inputs, similar to prompt-injection-style testing. This system currently only operates on a fixed, trusted internal dataset (`songs.csv`), which limits this risk in its current form — but it's worth naming as a consideration if the project were extended to accept external data sources.
+
+**Mitigation already in place:** the critique is always shown *alongside* the original score/reasons breakdown, never replacing it — so a user (or a grader reviewing this project) can independently verify whether the agent's claim matches the underlying numbers, rather than taking the AI's word alone.
+
+## What surprised you while testing your AI's reliability?
+
+The biggest surprise was how *consistent* the agent's reasoning was across repeated runs and across different profiles targeting the same song. Gym Hero was independently flagged as "Medium" confidence in two separate test profiles ("High-Energy Pop" and "Deep Intense Rock"), and in both cases the critique text pointed to the exact same underlying cause: a genre match inflating the score while the mood didn't align. This wasn't something the agent was told in advance — it re-derived the same structural finding from scratch each time, purely from being shown the raw score/reason data. That consistency gave real evidence that the critique reflects genuine pattern-recognition over the data rather than random or superficial text generation.
+
+A second surprise was how informative the *failure* mode testing turned out to be. When the account genuinely ran out of API credits mid-project, the resulting error (`BadRequestError... credit balance is too low`) was caught cleanly by the existing error handling and became, itself, a piece of real reliability evidence for this write-up — a case where an unplanned real-world failure ended up strengthening the project's guardrail documentation rather than derailing it.
+
+## AI collaboration: one helpful suggestion, one flawed one
+
+**Helpful:** When asked to design multiple ranking strategies for the original recommender without duplicating scoring logic (a stretch feature from the earlier project), the AI coding assistant proposed treating each "strategy" as a swappable weights configuration dictionary rather than a separate scoring function — recognizing that all the planned strategies (Genre-First, Mood-First, Energy-Focused) differed only in *how much* each factor was worth, not in *what* was being checked. This was a genuinely good design insight: it avoided code duplication, kept the original scoring behavior byte-for-byte unchanged as the default, and made adding new strategies trivial going forward.
+
+**Flawed:** Earlier in the original project, when analyzing why one song (Gym Hero) outranked another despite a worse overall fit, an AI assistant asserted that "genre dominates the ranking regardless of how far off energy is." Running the actual numbers across a dedicated test case ("Wrong Energy Right Genre") showed this claim didn't fully hold up — a strong mood-plus-energy match could still outrank a genre-only match in some cases. The claim was directionally useful (genre *does* have outsized influence) but overstated as an absolute rule. This was a clear lesson in verifying an AI's specific claims against real, generated output rather than accepting a plausible-sounding generalization at face value — a practice this project's own architecture diagram now explicitly encodes as a "Human review" checkpoint in the pipeline.
