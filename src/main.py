@@ -15,6 +15,7 @@ from .recommender import (
     recommend_songs_diverse,
     STRATEGIES,
 )
+from .agent import critique_recommendations, log_agent_run
 
 try:
     from tabulate import tabulate
@@ -27,6 +28,16 @@ STRATEGY = "Balanced"
 
 # When True, penalize repeated artists/genres in the top-k (recommend_songs_diverse).
 DIVERSITY_MODE = False
+
+# When True, ask the LLM agent (src/agent.py) to critique the recommendations
+# and assign a confidence label. Each critiqued profile makes one real API call.
+AGENT_MODE = True
+
+# The agent makes a real (paid) API call per profile, so by default we only
+# critique the first AGENT_PROFILE_LIMIT profiles to avoid burning credits across
+# all 7 profiles every run. Set AGENT_PROFILE_LIMIT to a large number (or
+# len(profiles)) to critique every profile.
+AGENT_PROFILE_LIMIT = 1
 
 
 def main() -> None:
@@ -60,7 +71,11 @@ def main() -> None:
             "Install it with:  pip install tabulate\n"
         )
 
-    for name, user_prefs in profiles:
+    # Collected during the loop and logged once per profile after all profiles
+    # have been processed (see log_agent_run calls below).
+    agent_runs = []
+
+    for index, (name, user_prefs) in enumerate(profiles):
         print(f"\n=== {name} ===\n")
         if DIVERSITY_MODE:
             recommendations = recommend_songs_diverse(user_prefs, songs, k=5, strategy=STRATEGY)
@@ -81,6 +96,21 @@ def main() -> None:
                 print(f"{rank}. {title} - Score: {score}")
                 print(f"   Because: {explanation}")
         print()
+
+        # Only critique the first AGENT_PROFILE_LIMIT profiles by default, so a
+        # full run doesn't make 7 paid API calls (see the constant above).
+        if AGENT_MODE and index < AGENT_PROFILE_LIMIT:
+            critiques = critique_recommendations(user_prefs, recommendations)
+            print("--- Agent critique ---")
+            for critique in critiques:
+                print(f"[{critique['confidence']}] {critique['title']}")
+                print(f"   {critique['critique_text']}")
+            print()
+            agent_runs.append((user_prefs, critiques))
+
+    # Persist one JSON line per critiqued profile after the run.
+    for user_prefs, critiques in agent_runs:
+        log_agent_run(user_prefs, critiques)
 
 
 if __name__ == "__main__":
