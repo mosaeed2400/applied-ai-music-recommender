@@ -118,6 +118,22 @@ normally.
 - The agent was also verified with a real, successful API call, producing critiques that independently corroborated a bias already documented in `model_card.md` (see "What's New" above) — a meaningful cross-check that the critique reflects genuine reasoning about the data.
 - Full reliability findings, biases, and reflection are documented in [`model_card.md`](model_card.md).
 
+## Reliability and Evaluation
+
+**Method:** Automated tests (pytest), logging with structured JSON output, and human evaluation of AI-generated critiques against known system biases.
+
+**Summary:** Across 3 real profiles (15 total recommendations critiqued), the agent assigned 4 High, 6 Medium, and 5 Low confidence labels. Manual review confirmed every "Medium" or "Low" critique correctly identified a real mismatch (wrong genre, wrong mood, or a score inflated by a single factor) rather than an arbitrary label — for example, the agent flagged Gym Hero as "Medium" in two different profiles for the same underlying reason (genre match masking a mood mismatch), consistent with the genre-inflation bias documented in `model_card.md`. Error handling was tested under 2 real failure conditions (invalid API key, insufficient account credits) and both correctly triggered graceful fallback with zero crashes across all runs.
+
+| Test Input | Evaluation Criteria | Result |
+|---|---|---|
+| High-Energy Pop profile (real API call, 5 recommendations) | Critiques correctly identify genre/mood/energy matches and mismatches | Pass — 5/5 critiques accurate on manual review |
+| Chill Lofi profile (real API call, 5 recommendations) | Critiques correctly identify genre/mood/energy matches and mismatches | Pass — 5/5 critiques accurate on manual review |
+| Deep Intense Rock profile (real API call, 5 recommendations) | Critiques correctly identify genre/mood/energy matches and mismatches | Pass — 5/5 critiques accurate on manual review |
+| Invalid API key | Handles gracefully, no crash | Pass |
+| $0 credit balance (real billing error) | Handles gracefully, no crash | Pass |
+| pytest suite (existing `Recommender` tests) | Original scoring logic still passes unmodified | Pass — 2/2 |
+| Repeated runs, same profile | Confidence labels and reasoning remain consistent across sessions | Pass — Sunrise City rated "High" in both a 15:39 run and 16:07 run with matching reasoning |
+
 ## Reflection
 
 A detailed reflection on this project's responsible-AI considerations — limitations, potential misuse, testing surprises, and specific examples of helpful and flawed AI collaboration — is documented in [`model_card.md`](model_card.md), as required.
