@@ -1,0 +1,14 @@
+flowchart TD
+    User[User selects a taste profile] --> Main[main.py CLI runner]
+    Main --> Loader[load_songs: reads songs.csv]
+    Loader --> Scorer[recommend_songs: scores and ranks all songs]
+    Scorer --> Results[Top-K recommendations with scores and reasons]
+    Results --> Agent[agent.py: critique_recommendations]
+    Agent --> LLM[Claude API: reasons over each recommendation]
+    LLM --> Critique[Confidence label + plain-language critique per song]
+    Critique --> Output[CLI output: table plus agent critique]
+    Critique --> Logger[log_agent_run: appends to logs/agent_log.jsonl]
+
+    style Agent fill:#7F77DD,color:#fff
+    style LLM fill:#7F77DD,color:#fff
+    style Critique fill:#7F77DD,color:#fff
