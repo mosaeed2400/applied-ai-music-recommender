@@ -143,6 +143,29 @@ The chain turns a critique into an actionable recommendation: solid matches are
 kept, borderline ones are flagged for a human, and weak matches point back to a
 stronger song already in the list.
 
+### Example 5: Two-step chain on a different profile (Chill Lofi)
+
+Input profile: `{"genre": "lofi", "mood": "chill", "energy": 0.3}`. The same
+critique → decide chain applied to a second profile, showing a clean `keep` and a
+`suggest_alternative` (real output from `logs/reasoning_trace.jsonl`):
+
+```
+[High] Library Rain
+   critique: This is an excellent match across all dimensions. The genre, mood,
+   and energy (0.35 vs target 0.3) all align very well with the listener's
+   preferences, and the high acousticness complements the lofi chill aesthetic.
+   decision: keep
+   reasoning: This is an excellent match across all dimensions with high
+   confidence. The genre, mood, and energy align very well with the preferences.
+[Low] Dust Road Home
+   critique: This is a poor match overall. Folk is quite different from lofi, the
+   mood is 'dreamy' rather than 'chill', and the score is entirely derived from
+   energy proximity alone, which isn't sufficient to make this a good recommendation.
+   decision: suggest_alternative -> Library Rain
+   reasoning: This is a poor match with low confidence, mismatching both genre and
+   mood. Library Rain provides a much better alignment with all stated preferences.
+```
+
 ## Design Decisions and Trade-offs
 
 - **Agent scoped to one profile by default** — critiquing all 7 test profiles on every run would multiply API cost and latency unnecessarily during development; `AGENT_PROFILE_LIMIT` makes this an explicit, documented choice rather than a hidden constraint.
