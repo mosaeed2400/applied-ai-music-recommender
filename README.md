@@ -104,6 +104,45 @@ In both failure cases, the program did not crash — it printed a clear
 `[Unavailable]` label per song and continued processing the remaining profiles
 normally.
 
+### Example 4: Full two-step reasoning chain (critique → decide)
+
+Input profile: `{"genre": "pop", "mood": "happy", "energy": 0.9}`. The agent runs
+two *separate* Claude calls — step 1 critiques each song and assigns a confidence
+label, then step 2 reasons from that critique to choose an action (`keep`,
+`flag_for_review`, or `suggest_alternative`). Real output captured in
+`logs/reasoning_trace.jsonl`:
+
+```
+--- Agent critique + decision ---
+[High] Sunrise City
+   critique: This is an excellent match across all dimensions. It matches both
+   genre and mood perfectly, and the energy level of 0.82 is reasonably close to
+   the target of 0.9, making it a well-rounded recommendation.
+   decision: keep
+   reasoning: This recommendation matches all three preferences well with high
+   confidence. The energy level of 0.82 is close enough to 0.9 while maintaining
+   perfect genre and mood alignment.
+[Medium] Gym Hero
+   critique: While the genre and energy are strong matches, the mood is 'intense'
+   rather than 'happy', which represents a significant mismatch. The high score is
+   primarily driven by genre points, masking this mood discrepancy.
+   decision: flag_for_review
+   reasoning: The mood mismatch ('intense' vs 'happy') is significant despite
+   strong genre and energy matches. A human should evaluate whether the energy
+   match compensates for the mood discrepancy.
+[Low] Neon Uprising
+   critique: Despite perfect energy matching, this song fails on both genre (EDM
+   vs pop) and mood (triumphant vs happy). The score is entirely carried by energy
+   proximity, making it a poor overall fit for someone seeking happy pop music.
+   decision: suggest_alternative -> Sunrise City
+   reasoning: This fails on both genre and mood with low confidence. Sunrise City
+   is a far superior match across all dimensions.
+```
+
+The chain turns a critique into an actionable recommendation: solid matches are
+kept, borderline ones are flagged for a human, and weak matches point back to a
+stronger song already in the list.
+
 ## Design Decisions and Trade-offs
 
 - **Agent scoped to one profile by default** — critiquing all 7 test profiles on every run would multiply API cost and latency unnecessarily during development; `AGENT_PROFILE_LIMIT` makes this an explicit, documented choice rather than a hidden constraint.
