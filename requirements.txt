@@ -2,3 +2,5 @@ pandas
 pytest
 streamlit
 tabulate
+anthropic
+python-dotenv
